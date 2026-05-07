@@ -1,0 +1,48 @@
+:root {
+  --bg: #f5efe6;
+  --bg-elev: #ffffff;
+  --ink: #1a1a1a;
+  --ink-muted: #5a5a5a;
+  --ink-faint: #8a8a8a;
+  --accent: #cc6633;
+  --accent-soft: #e89b7a;
+  --accent-bg: rgba(204, 102, 51, 0.08);
+  --border: rgba(26, 26, 26, 0.12);
+  --border-strong: rgba(26, 26, 26, 0.25);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12);
+  --radius: 10px;
+  --radius-lg: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input {
+  font-family: inherit;
+}
+
+code, .mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}

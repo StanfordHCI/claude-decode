@@ -1,0 +1,9 @@
+const LOADING_PHRASES = [
+  'Decoding sessions',
+  'Reading between the prompts',
+  'Mapping your patterns',
+  'Tracing motivations',
+  'Untangling intent',
+  'Extracting signal',
+  'Synthesizing insights',
+]

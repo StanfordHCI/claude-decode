@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visualize Lattice</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Inter","Helvetica Neue",sans-serif;background:#f8f8f6;color:#1a1a1a;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{padding:14px 24px;border-bottom:1px solid #e0e0e0;background:#fff;flex-shrink:0;display:flex;align-items:center;gap:16px}
+header h1{font-size:1.1rem;font-weight:600;letter-spacing:-0.01em;flex:1}
+#main{display:flex;flex:1;overflow:hidden;min-height:0}
+#canvas-area{flex:1;position:relative;overflow:hidden}
+#empty-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:.85rem;flex-direction:column;gap:10px;background:#f8f8f6}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:none;cursor:grab}
+canvas.panning{cursor:grabbing}
+#tooltip{position:absolute;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px 10px;font-size:.74rem;max-width:260px;pointer-events:none;display:none;box-shadow:0 2px 8px rgba(0,0,0,.1);line-height:1.5;color:#333;z-index:10}
+#tooltip b{color:#111}
+#panel{width:340px;min-width:280px;border-left:1px solid #e0e0e0;background:#fff;overflow-y:auto;padding:20px 18px;flex-shrink:0}
+#panel.empty{display:flex;align-items:center;justify-content:center;color:#ccc;font-size:.82rem}
+#panel-content{display:none}
+#panel-content.visible{display:block}
+.ptag{display:inline-block;font-size:.68rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#0047AB;background:#e8efff;padding:2px 8px;border-radius:4px;margin-bottom:8px}
+.ptag.mid{color:#555;background:#f2f2f0}
+.ptag.leaf{color:#888;background:#f2f2f0}
+.pbadge{display:inline-block;font-size:.67rem;font-weight:600;background:#f2f2f0;color:#777;padding:2px 7px;border-radius:4px;margin-left:5px}
+#panel h2{font-size:.9rem;font-weight:700;line-height:1.45;margin-bottom:8px;color:#111}
+.tagline{font-size:.79rem;font-style:italic;color:#666;line-height:1.55;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #eee}
+.slbl{font-size:.67rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#aaa;margin:12px 0 5px}
+.itext{font-size:.79rem;color:#333;line-height:1.6}
+.ctext{font-size:.76rem;color:#777;line-height:1.55;font-style:italic}
+.evlist{margin-top:6px;display:flex;flex-direction:column;gap:5px}
+.evitem{font-size:.73rem;color:#444;line-height:1.5;background:#f7f7f5;border-left:3px solid #ddd;padding:5px 8px;border-radius:0 4px 4px 0}
+.evitem strong{color:#aaa;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.chip{font-size:.7rem;background:#f2f2f0;color:#555;padding:3px 8px;border-radius:20px;cursor:pointer;border:1px solid #e0e0e0;transition:background .1s}
+.chip:hover{background:#e0e7ff;border-color:#0047AB;color:#0047AB}
+</style>
+</head>
+<body>
+<header>
+  <h1>Visualize Lattice</h1>
+  <label for="file-input" style="cursor:pointer;font-size:.79rem;font-weight:600;color:#0047AB;background:#e8efff;padding:7px 16px;border-radius:6px;border:1.5px solid #b8ceff;white-space:nowrap">&#8593; Upload lattice.json</label>
+  <input type="file" id="file-input" accept=".json" style="display:none">
+</header>
+<div id="main">
+  <div id="canvas-area">
+    <div id="empty-state">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ddd" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span>Upload a <code style="font-size:.82rem;background:#f5f5f3;padding:1px 5px;border-radius:3px">lattice.json</code> to begin</span>
+    </div>
+    <canvas id="plot"></canvas>
+    <div id="tooltip"></div>
+  </div>
+  <div id="panel" class="empty">
+    <span>Click a node to explore</span>
+    <div id="panel-content"></div>
+  </div>
+</div>
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const PAD    = { l: 168, r: 32, t: 44, b: 44 };
+const HIT_R  = 14; // click/hover hit radius in screen px
+const C = {
+  edgeNormal: '#dedede', edgeDim: '#efefef', edgeHL: '#0047AB',
+  obs: '#c0c0c0', midFill: '#ffffff', midStroke: '#666666',
+  top: '#1a1a1a', selected: '#0047AB', child: '#6b9ed4', dimmed: '#e0e0e0',
+  label: '#999', bg: '#ffffff',
+};
+
+// ── State ────────────────────────────────────────────────────────────────────
+let _data        = null;
+let _nodeBasePos = null;  // [[{id,layerIdx,bx,by,...node}]]  — recomputed on resize
+let _edgeCoords  = null;  // [{x1,y1,x2,y2,key}]             — recomputed on resize
+let _nodeById    = null;  // [Map(id→node)]                   — O(1) lookup
+let _nodePosById = null;  // [Map(id→{bx,by})]                — O(1) lookup
+let _selected    = null;  // {layerIdx,nodeId} | null
+let _highlight   = { nodeStatus: new Map(), edgeKeys: new Set() };
+let _cssW = 0, _cssH = 0, _dpr = 1;
+let _view = { scale: 1, tx: 0, ty: 0 };
+let _drag = null;  // pan state
+
+function trunc(s, n) { return s && s.length > n ? s.slice(0, n) + '…' : (s || ''); }
+
+// ── Data transform ───────────────────────────────────────────────────────────
+function transformLatticeJSON(raw) {
+  const layerKeys = Object.keys(raw.nodes).map(Number).sort((a, b) => a - b);
+  const layers = layerKeys.map((key, li) =>
+    (raw.nodes[key] || []).map(n => ({
+      id: Number(n.id), layerIdx: li,
+      text: n.observation || n.text || '',
+      title: n.title || '', tagline: n.tagline || '',
+      insight: n.insight || '', context: n.context || '',
+      group: (n.metadata || {}).input_session ?? 0,
+    }))
+  );
+  const edges = layerKeys.map((key, li) => {
+    if (li === 0) return [];
+    return (raw.edges[key] || []).map(e => ({
+      higherNodeId: Number(e.source), lowerNodeId: Number(e.target),
+    }));
+  });
+  return { layers, edges };
+}
+
+// ── Layout (base positions, recomputed on resize) ────────────────────────────
+function computeLayout() {
+  const { layers, edges } = _data;
+  const numLayers = layers.length;
+  const plotW = _cssW - PAD.l - PAD.r;
+  const plotH = _cssH - PAD.t - PAD.b;
+
+  _nodeBasePos = layers.map((nodes, li) => {
+    const by = PAD.t + plotH * (1 - li / Math.max(numLayers - 1, 1));
+    return nodes.map((n, i) => ({
+      ...n,
+      bx: PAD.l + (nodes.length === 1 ? plotW / 2 : i / (nodes.length - 1) * plotW),
+      by,
+    }));
+  });
+
+  _nodePosById = _nodeBasePos.map(lnodes => new Map(lnodes.map(n => [n.id, n])));
+  _nodeById    = _data.layers.map(nodes => new Map(nodes.map(n => [n.id, n])));
+
+  _edgeCoords = [];
+  edges.forEach((layerEdges, li) => {
+    if (li === 0) return;
+    layerEdges.forEach(({ higherNodeId, lowerNodeId }) => {
+      const h = _nodePosById[li].get(higherNodeId);
+      const l = _nodePosById[li - 1].get(lowerNodeId);
+      if (!h || !l) return;
+      _edgeCoords.push({ x1: l.bx, y1: l.by, x2: h.bx, y2: h.by,
+        key: `${li}:${higherNodeId}:${lowerNodeId}` });
+    });
+  });
+}
+
+// ── View helpers (pan/zoom) ───────────────────────────────────────────────────
+function b2s(bx, by) {
+  return { x: bx * _view.scale + _view.tx, y: by * _view.scale + _view.ty };
+}
+function s2b(sx, sy) {
+  return { bx: (sx - _view.tx) / _view.scale, by: (sy - _view.ty) / _view.scale };
+}
+
+// ── Highlight (BFS over all descendants) ─────────────────────────────────────
+function computeHighlight() {
+  const nodeStatus = new Map();
+  const edgeKeys   = new Set();
+  if (_selected) {
+    const { layerIdx, nodeId } = _selected;
+    nodeStatus.set(`${layerIdx}:${nodeId}`, 'selected');
+    const queue = [{ li: layerIdx, id: nodeId }];
+    while (queue.length) {
+      const { li, id } = queue.shift();
+      if (li === 0) continue;
+      (_data.edges[li] || []).filter(e => e.higherNodeId === id).forEach(e => {
+        edgeKeys.add(`${li}:${id}:${e.lowerNodeId}`);
+        const key = `${li - 1}:${e.lowerNodeId}`;
+        if (!nodeStatus.has(key)) {
+          nodeStatus.set(key, 'child');
+          queue.push({ li: li - 1, id: e.lowerNodeId });
+        }
+      });
+    }
+  }
+  _highlight = { nodeStatus, edgeKeys };
+}
+
+// ── Node radius by layer ──────────────────────────────────────────────────────
+function nodeRadius(li, numLayers, isSelected) {
+  const base = li === 0 ? 5 : Math.min(5 + li * 2, 12);
+  return isSelected ? base + 3 : base;
+}
+
+// ── Canvas draw ───────────────────────────────────────────────────────────────
+// All drawing uses CSS-pixel coords. DPR scaling is handled via ctx.scale.
+function draw() {
+  const canvas = document.getElementById('plot');
+  const ctx    = canvas.getContext('2d');
+  const { layers } = _data;
+  const numLayers   = layers.length;
+  const { nodeStatus, edgeKeys } = _highlight;
+  const hasSel = _selected !== null;
+
+  ctx.save();
+  ctx.scale(_dpr, _dpr);
+  ctx.clearRect(0, 0, _cssW, _cssH);
+
+  // ── Axis labels (fixed, no view transform) ────────────────────────────────
+  ctx.font = '11px Inter, Helvetica Neue, sans-serif';
+  ctx.fillStyle = C.label;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  _nodeBasePos.forEach((lnodes, li) => {
+    if (!lnodes.length) return;
+    const { y } = b2s(0, lnodes[0].by);
+    const label = li === 0 ? 'Observations' : `L${li} Insights`;
+    ctx.fillText(label, PAD.l - 10, y);
+  });
+
+  // ── Edges — two batched path calls ───────────────────────────────────────
+  // Batch 1: normal/dimmed edges
+  ctx.beginPath();
+  ctx.strokeStyle = hasSel ? C.edgeDim : C.edgeNormal;
+  ctx.lineWidth = 1;
+  _edgeCoords.forEach(e => {
+    if (edgeKeys.has(e.key)) return;
+    const p1 = b2s(e.x1, e.y1), p2 = b2s(e.x2, e.y2);
+    ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+  });
+  ctx.stroke();
+
+  // Batch 2: highlighted edges
+  if (edgeKeys.size) {
+    ctx.beginPath();
+    ctx.strokeStyle = C.edgeHL;
+    ctx.lineWidth = 1.5;
+    _edgeCoords.forEach(e => {
+      if (!edgeKeys.has(e.key)) return;
+      const p1 = b2s(e.x1, e.y1), p2 = b2s(e.x2, e.y2);
+      ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+    });
+    ctx.stroke();
+  }
+
+  // ── Nodes ─────────────────────────────────────────────────────────────────
+  // Group nodes by visual style so we minimise ctx state switches.
+  // Buckets: dimmed | child | selected | obs-normal | mid-normal | top-normal
+  const buckets = { dimmed: [], child: [], selected: [], obsN: [], midN: [], topN: [] };
+
+  _nodeBasePos.forEach((lnodes, li) => {
+    lnodes.forEach(n => {
+      const s = nodeStatus.get(`${li}:${n.id}`);
+      if (hasSel) {
+        if (s === 'selected') buckets.selected.push({ n, li });
+        else if (s === 'child') buckets.child.push({ n, li });
+        else buckets.dimmed.push({ n, li });
+      } else {
+        if (li === 0) buckets.obsN.push({ n, li });
+        else if (li === numLayers - 1) buckets.topN.push({ n, li });
+        else buckets.midN.push({ n, li });
+      }
+    });
+  });
+
+  function fillBucket(bucket, fill, stroke, strokeW) {
+    bucket.forEach(({ n, li }) => {
+      const { x, y } = b2s(n.bx, n.by);
+      const r = nodeRadius(li, numLayers, false);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = strokeW || 1.5; ctx.stroke(); }
+    });
+  }
+
+  fillBucket(buckets.dimmed,  C.dimmed,   null);
+  fillBucket(buckets.child,   C.child,    null);
+  fillBucket(buckets.obsN,    C.obs,      null);
+  fillBucket(buckets.midN,    C.midFill,  C.midStroke, 1.5);
+  fillBucket(buckets.topN,    C.top,      null);
+
+  // Selected nodes: drawn last so they appear on top
+  buckets.selected.forEach(({ n, li }) => {
+    const { x, y } = b2s(n.bx, n.by);
+    const r = nodeRadius(li, numLayers, true);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = C.selected;
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+// ── Hit detection ─────────────────────────────────────────────────────────────
+function findNodeAt(screenX, screenY) {
+  if (!_nodeBasePos) return null;
+  let best = null, bestDist = Infinity;
+  _nodeBasePos.forEach(lnodes => {
+    lnodes.forEach(n => {
+      const { x, y } = b2s(n.bx, n.by);
+      const dx = x - screenX, dy = y - screenY;
+      const d  = dx * dx + dy * dy;
+      if (d < HIT_R * HIT_R && d < bestDist) { best = n; bestDist = d; }
+    });
+  });
+  return best;
+}
+
+// ── Canvas sizing ─────────────────────────────────────────────────────────────
+function resizeCanvas() {
+  const area   = document.getElementById('canvas-area');
+  const canvas = document.getElementById('plot');
+  _dpr  = window.devicePixelRatio || 1;
+  _cssW = area.clientWidth;
+  _cssH = area.clientHeight;
+  canvas.width  = _cssW * _dpr;
+  canvas.height = _cssH * _dpr;
+  if (_data) { computeLayout(); draw(); }
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+function renderLattice(data) {
+  _data     = data;
+  _selected = null;
+  _highlight = { nodeStatus: new Map(), edgeKeys: new Set() };
+  _view = { scale: 1, tx: 0, ty: 0 };
+
+  const canvas = document.getElementById('plot');
+  document.getElementById('empty-state').style.display = 'none';
+  canvas.style.display = 'block';
+
+  resizeCanvas(); // computes layout and draws
+
+  // ── Pan ──────────────────────────────────────────────────────────────────
+  let dragStart = null;
+  canvas.addEventListener('mousedown', e => {
+    dragStart = { mx: e.clientX, my: e.clientY, tx: _view.tx, ty: _view.ty, moved: false };
+    canvas.classList.add('panning');
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragStart) return;
+    const dx = e.clientX - dragStart.mx, dy = e.clientY - dragStart.my;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragStart.moved = true;
+    if (dragStart.moved) {
+      _view.tx = dragStart.tx + dx;
+      _view.ty = dragStart.ty + dy;
+      draw();
+    }
+  });
+  window.addEventListener('mouseup', e => {
+    if (!dragStart) return;
+    if (!dragStart.moved) {
+      const rect = canvas.getBoundingClientRect();
+      handleClick(e.clientX - rect.left, e.clientY - rect.top);
+    }
+    dragStart = null;
+    canvas.classList.remove('panning');
+  });
+
+  // ── Zoom ─────────────────────────────────────────────────────────────────
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect  = canvas.getBoundingClientRect();
+    const mx    = e.clientX - rect.left;
+    const my    = e.clientY - rect.top;
+    const delta = e.deltaY < 0 ? 1.1 : 0.9;
+    _view.tx = mx - (mx - _view.tx) * delta;
+    _view.ty = my - (my - _view.ty) * delta;
+    _view.scale *= delta;
+    draw();
+  }, { passive: false });
+
+  // ── Hover tooltip ─────────────────────────────────────────────────────────
+  canvas.addEventListener('mousemove', e => {
+    if (dragStart && dragStart.moved) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+    const my   = e.clientY - rect.top;
+    const node = findNodeAt(mx, my);
+    const tip  = document.getElementById('tooltip');
+    if (!node) { tip.style.display = 'none'; canvas.style.cursor = dragStart ? 'grabbing' : 'grab'; return; }
+    canvas.style.cursor = 'pointer';
+    tip.innerHTML = node.layerIdx === 0
+      ? `<b>Obs ${node.id}</b><br>${trunc(node.text, 120)}`
+      : `<b>${trunc(node.title, 60)}</b><br>${trunc(node.insight, 120)}`;
+    tip.style.display = 'block';
+    const tipW = tip.offsetWidth;
+    const areaW = document.getElementById('canvas-area').clientWidth;
+    tip.style.left = (mx + 14 + tipW > areaW ? mx - tipW - 10 : mx + 14) + 'px';
+    tip.style.top  = (my - 8) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => {
+    document.getElementById('tooltip').style.display = 'none';
+  });
+}
+
+function handleClick(mx, my) {
+  const node = findNodeAt(mx, my);
+  if (!node) return;
+  if (_selected && _selected.layerIdx === node.layerIdx && _selected.nodeId === node.id) {
+    _selected = null;
+  } else {
+    _selected = { layerIdx: node.layerIdx, nodeId: node.id };
+    showPanel(node.id, node.layerIdx);
+  }
+  computeHighlight();
+  draw();
+}
+
+// ── Panel ─────────────────────────────────────────────────────────────────────
+function showPanel(nodeId, layerIdx) {
+  if (!_data) return;
+  const { layers, edges } = _data;
+  const numLayers = layers.length;
+  const node = _nodeById[layerIdx].get(nodeId);
+  if (!node) return;
+
+  document.getElementById('panel').classList.remove('empty');
+  const content = document.getElementById('panel-content');
+  const isLeaf  = layerIdx === 0;
+  const isTop   = layerIdx === numLayers - 1;
+  const tagLabel = isLeaf ? 'Observation' : (isTop && numLayers > 2 ? 'Top-Level Insight' : `L${layerIdx} Insight`);
+  const tagClass = isLeaf ? 'leaf' : (isTop ? '' : 'mid');
+
+  let html = `<div class="ptag ${tagClass}">${tagLabel}</div>`;
+
+  if (isLeaf) {
+    html += `<span class="pbadge">Session ${node.group} · ID ${node.id}</span>`;
+    html += `<p class="itext" style="margin-top:10px">${node.text || ''}</p>`;
+    if (numLayers > 1) {
+      const chips = (edges[1] || []).filter(e => e.lowerNodeId === nodeId).map(e => {
+        const hn = _nodeById[1].get(e.higherNodeId);
+        return hn ? `<span class="chip" data-id="${hn.id}" data-layer="1">${trunc(hn.title, 42)}</span>` : '';
+      }).filter(Boolean).join('');
+      if (chips) html += `<div class="slbl">Assigned to insight(s)</div><div class="chips">${chips}</div>`;
+    }
+  } else {
+    html += `<span class="pbadge">Session ${node.group}</span>`;
+    html += `<h2 style="margin-top:8px">${node.title}</h2>`;
+    if (node.tagline) html += `<p class="tagline">${node.tagline}</p>`;
+    html += `<div class="slbl">Insight</div><p class="itext">${node.insight}</p>`;
+    if (node.context) html += `<div class="slbl">Context</div><p class="ctext">${node.context}</p>`;
+
+    const linkedLower = (edges[layerIdx] || []).filter(e => e.higherNodeId === nodeId)
+      .map(e => _nodeById[layerIdx - 1].get(e.lowerNodeId)).filter(Boolean);
+
+    if (linkedLower.length) {
+      if (layerIdx === 1) {
+        const shown = linkedLower.slice(0, 5);
+        html += `<div class="slbl">Evidence (${linkedLower.length} observation${linkedLower.length > 1 ? 's' : ''})</div>`;
+        html += `<div class="evlist">` + shown.map(ln =>
+          `<div class="evitem"><strong>Obs ${ln.id}</strong><br>${trunc(ln.text, 200)}</div>`
+        ).join('') + `</div>`;
+        if (linkedLower.length > 5) html += `<p style="font-size:.7rem;color:#bbb;margin-top:4px">+ ${linkedLower.length - 5} more</p>`;
+      } else {
+        const li = layerIdx - 1;
+        html += `<div class="slbl">Merged from L${li} insights</div><div class="chips">` +
+          linkedLower.map(ln => `<span class="chip" data-id="${ln.id}" data-layer="${li}">${trunc(ln.title, 42)}</span>`).join('') +
+          `</div>`;
+      }
+    }
+    if (!isTop) {
+      const chips = (edges[layerIdx + 1] || []).filter(e => e.lowerNodeId === nodeId).map(e => {
+        const hn = _nodeById[layerIdx + 1].get(e.higherNodeId);
+        return hn ? `<span class="chip" data-id="${hn.id}" data-layer="${layerIdx + 1}">${trunc(hn.title, 42)}</span>` : '';
+      }).filter(Boolean).join('');
+      if (chips) html += `<div class="slbl">Included in L${layerIdx + 1} insight(s)</div><div class="chips">${chips}</div>`;
+    }
+  }
+
+  content.innerHTML = html;
+  content.classList.add('visible');
+  content.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = +chip.dataset.id, layer = +chip.dataset.layer;
+      _selected = { layerIdx: layer, nodeId: id };
+      computeHighlight();
+      draw();
+      showPanel(id, layer);
+    });
+  });
+}
+
+// ── File upload & resize ──────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = evt => {
+    try { renderLattice(transformLatticeJSON(JSON.parse(evt.target.result))); }
+    catch (err) { alert('Failed to load lattice.json: ' + err.message); }
+  };
+  reader.readAsText(file);
+});
+
+window.addEventListener('resize', () => { if (_data) resizeCanvas(); });
+</script>
+</body>
+</html>
