@@ -152,7 +152,6 @@ async def lattice():
     l = Lattice(
         name=name,
         interactions=interaction_traces,
-        observations=json.load(open("observations.json")),
         config=config,
         insight_model=AsyncLLM(name="claude-opus-4-6", api_key=api_key),
         observer_model=AsyncLLM(name="claude-sonnet-4-6", api_key=api_key),

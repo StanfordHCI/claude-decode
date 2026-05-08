@@ -17,7 +17,8 @@ const LOADING_PHRASES = [
   'connecting the dots',
   'sense-making over data',
   'drawing inferences',
-  'puzzling over evidence'
+  'puzzling over evidence',
+  'consternating over complexity'
 ]
 
 function Hero({ onTryItOut }) {
@@ -1284,7 +1285,36 @@ export default function App() {
         throw new Error(data.error || `Server returned ${res.status}`)
       }
 
-      const data = await res.json()
+      const queued = await res.json()
+      const taskId = queued.task_id
+      if (!taskId) {
+        throw new Error('Server did not return a task id.')
+      }
+
+      const pollMs = 3000
+      const maxWaitMs = 45 * 60 * 1000
+      const started = Date.now()
+      let data = null
+      while (Date.now() - started < maxWaitMs) {
+        const stRes = await fetch(`${API_BASE}/api/insights/task/${taskId}`)
+        const st = await stRes.json().catch(() => ({}))
+        if (!stRes.ok) {
+          throw new Error(st.error || `Status check failed (${stRes.status})`)
+        }
+        if (st.state === 'FAILURE') {
+          throw new Error(st.error || 'Insights task failed.')
+        }
+        if (st.state === 'SUCCESS') {
+          const { state: _s, ...rest } = st
+          data = rest
+          break
+        }
+        await new Promise((r) => setTimeout(r, pollMs))
+      }
+      if (!data) {
+        throw new Error('Timed out waiting for insights.')
+      }
+
       setProgress(100)
       // brief beat at 100% before swapping to the lattice page
       setTimeout(() => {
