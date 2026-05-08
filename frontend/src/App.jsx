@@ -1158,19 +1158,36 @@ function HowItWorks() {
         >
           our paper
         </a>
-        . To build your own applications using behavior latticing, check out{' '}
+        . To build your own applications using behavior latticing, check out the{' '}
         <a
           href="https://stanfordhci.github.io/lattice/"
           target="_blank"
           rel="noreferrer"
           className="how-link"
         >
-          our github
+          API documentation
         </a>
         .
       </p>
     </div>
   )
+}
+
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '')
+
+// On GitHub Pages the app is served from /<repo>/, so we route relative to
+// import.meta.env.BASE_URL (which Vite injects: '/' in dev, '/claude-decode/' in prod).
+const ROUTE_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+
+function stripBase(pathname) {
+  if (ROUTE_BASE && pathname.startsWith(ROUTE_BASE)) {
+    return pathname.slice(ROUTE_BASE.length) || '/'
+  }
+  return pathname || '/'
+}
+
+function withBase(to) {
+  return ROUTE_BASE + (to.startsWith('/') ? to : `/${to}`)
 }
 
 const LATTICE_STORAGE_KEY = 'claude-decoded:lattice'
@@ -1193,19 +1210,20 @@ export default function App() {
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
   const [path, setPath] = useState(
-    typeof window !== 'undefined' ? window.location.pathname : '/',
+    typeof window !== 'undefined' ? stripBase(window.location.pathname) : '/',
   )
   const [latticeData, setLatticeData] = useState(() => readStoredLattice())
 
   useEffect(() => {
-    const onPop = () => setPath(window.location.pathname)
+    const onPop = () => setPath(stripBase(window.location.pathname))
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
   const navigate = (to) => {
-    if (window.location.pathname !== to) {
-      window.history.pushState({}, '', to)
+    const target = withBase(to)
+    if (window.location.pathname !== target) {
+      window.history.pushState({}, '', target)
     }
     setPath(to)
   }
@@ -1256,7 +1274,7 @@ export default function App() {
       formData.append('api_key', apiKey)
       files.forEach((f) => formData.append('files', f, f.name))
 
-      const res = await fetch('/api/insights', {
+      const res = await fetch(`${API_BASE}/api/insights`, {
         method: 'POST',
         body: formData,
       })
