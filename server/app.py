@@ -1,16 +1,32 @@
+import asyncio
 import json
 import os
 from latticing import Lattice, AsyncLLM, SyncLLM, Sequential, SessionLayer
-from pathlib import Path
 from typing import List, Dict
 from datetime import datetime
 
+from celery import Celery
+from celery.result import AsyncResult
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from anthropic import Anthropic, AnthropicError
 
 app = Flask(__name__)
 CORS(app)
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+celery = Celery(
+    "insights",
+    broker=REDIS_URL,
+    backend=REDIS_URL,
+)
+celery.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+)
 
 # Allow large folder uploads (Claude Code logs can be many MBs)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
@@ -132,41 +148,74 @@ def parse_transcripts(files, name: str = "User"):
     return processed, flat_entries
 
 
+@celery.task(bind=True, name="insights.build_lattice")
+def build_insights_task(self, name: str, api_key: str, interaction_traces: list):
+    async def _run():
+        config = Sequential(
+            SessionLayer(n=5),
+            SessionLayer(n=10),
+            SessionLayer(n=20),
+            SessionLayer(n=40),
+        )
+        l = Lattice(
+            name=name,
+            interactions=interaction_traces,
+            config=config,
+            insight_model=AsyncLLM(name="claude-opus-4-6", api_key=api_key),
+            observer_model=AsyncLLM(name="claude-sonnet-4-6", api_key=api_key),
+            evidence_model=AsyncLLM(name="claude-sonnet-4-6", api_key=api_key),
+            format_model=SyncLLM(name="claude-sonnet-4-6", api_key=api_key),
+            params={"max_concurrent": 100, "min_insights": 3, "window_size": 100},
+            description="the user's conversation with Claude Code, an AI-based coding agent",
+        )
+        await l.build()
+        lattice = l.lattice
+        layers = lattice["nodes"].keys()
+        last_key = list(layers)[-1]
+        top_layer = lattice["nodes"][last_key]
+        return {"status": "ok", "lattice": lattice, "top_layer": top_layer}
+
+    return asyncio.run(_run())
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
 
 @app.route("/api/insights", methods=["POST"])
-async def lattice():
+def enqueue_insights():
     name = request.form.get("name", "User").strip()
     api_key = request.form.get("api_key", "").strip()
     files = request.files.getlist("files")
-    interaction_traces, _ = parse_transcripts(files, name)
-    config = Sequential(
-        SessionLayer(n=5),
-        SessionLayer(n=10),
-        SessionLayer(n=20),
-        SessionLayer(n=40)
-    )
-    l = Lattice(
-        name=name,
-        interactions=interaction_traces,
-        config=config,
-        insight_model=AsyncLLM(name="claude-opus-4-6", api_key=api_key),
-        observer_model=AsyncLLM(name="claude-sonnet-4-6", api_key=api_key),
-        evidence_model=AsyncLLM(name="claude-sonnet-4-6", api_key=api_key),
-        format_model=SyncLLM(name="claude-sonnet-4-6", api_key=api_key),
-        params={"max_concurrent": 100, "min_insights": 3, "window_size": 100},
-        description="the user's conversation with Claude Code, an AI-based coding agent"
-    )
 
-    await l.build()
-    lattice = l.lattice
-    layers = lattice['nodes'].keys()
-    last_key = list(layers)[-1]
-    top_layer = lattice['nodes'][last_key]
-    return jsonify({"status": "ok", "lattice": lattice, "top_layer": top_layer})
+    if not api_key:
+        return jsonify({"error": "Anthropic API key is required."}), 400
+    if not files:
+        return jsonify({"error": "No log files were uploaded."}), 400
+
+    interaction_traces, flat_entries = parse_transcripts(files, name)
+    if not flat_entries:
+        return jsonify({"error": "Could not parse any transcript entries from the uploaded files."}), 400
+
+    async_result = build_insights_task.delay(name, api_key, interaction_traces)
+    return jsonify({"task_id": async_result.id, "state": "QUEUED"})
+
+
+@app.route("/api/insights/task/<task_id>", methods=["GET"])
+def insights_task_status(task_id):
+    result = AsyncResult(task_id, app=celery)
+    if result.state == "PENDING":
+        return jsonify({"state": "PENDING", "message": "Task is waiting in the queue."})
+    if result.state in ("STARTED", "RETRY"):
+        return jsonify({"state": result.state})
+    if result.state == "SUCCESS":
+        payload = result.result or {}
+        return jsonify({"state": "SUCCESS", **payload})
+    if result.state == "FAILURE":
+        err = str(result.info) if result.info else "Unknown error"
+        return jsonify({"state": "FAILURE", "error": err})
+    return jsonify({"state": result.state})
 
 
 # @app.route("/api/insights", methods=["POST"])
