@@ -124,7 +124,10 @@ function InsightForm({ onSubmit }) {
   const [name, setName] = useState('User')
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
+  const [showLogHelp, setShowLogHelp] = useState(false)
   const inputRef = useRef(null)
+  const isMac =
+    typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files || [])
@@ -210,6 +213,54 @@ function InsightForm({ onSubmit }) {
             </div>
           )}
         </label>
+        <button
+          type="button"
+          className="field-help-toggle"
+          onClick={() => setShowLogHelp((v) => !v)}
+          aria-expanded={showLogHelp}
+        >
+          {showLogHelp ? '− hide steps' : '＋ where do I find these?'}
+        </button>
+        {showLogHelp && (
+          <div className="field-help">
+            {isMac ? (
+              <ol className="field-help-list">
+                <li>
+                  Open <strong>Finder</strong> and press{' '}
+                  <kbd>⇧</kbd>+<kbd>⌘</kbd>+<kbd>G</kbd>.
+                </li>
+                <li>
+                  Paste <code>~/.claude/projects</code> and hit{' '}
+                  <kbd>Return</kbd>.
+                </li>
+                <li>
+                  Click <strong>Click to choose a folder</strong> above and
+                  pick that folder.
+                </li>
+                <li>
+                  Tip: in the file picker, press{' '}
+                  <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>.</kbd> to toggle hidden folders.
+                </li>
+              </ol>
+            ) : (
+              <ol className="field-help-list">
+                <li>
+                  Open your file manager and enable{' '}
+                  <strong>Show hidden files</strong>{' '}
+                  (<kbd>Ctrl</kbd>+<kbd>H</kbd> on most Linux file managers).
+                </li>
+                <li>
+                  Navigate to your home folder, then{' '}
+                  <code>.claude/projects</code>.
+                </li>
+                <li>
+                  Click <strong>Click to choose a folder</strong> above and
+                  pick that folder.
+                </li>
+              </ol>
+            )}
+          </div>
+        )}
       </div>
 
       <label className="field">
@@ -1291,8 +1342,8 @@ export default function App() {
         throw new Error('Server did not return a task id.')
       }
 
-      const pollMs = 3000
-      const maxWaitMs = 45 * 60 * 1000
+      const pollMs = 20000 // 20 seconds
+      const maxWaitMs = 10 * 60 * 1000 // 10 minutes
       const started = Date.now()
       let data = null
       while (Date.now() - started < maxWaitMs) {
@@ -1374,7 +1425,7 @@ export default function App() {
               className="topbar-link"
               onClick={() => navigate('/lattice')}
             >
-              back to your lattice →
+              back to your decodings →
             </button>
           )}
           <button
