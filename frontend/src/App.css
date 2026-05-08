@@ -96,6 +96,12 @@
   font-weight: 600;
 }
 
+.hero-title-underline {
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.12em;
+}
+
 .hero-tagline {
   font-size: 22px;
   font-weight: 500;

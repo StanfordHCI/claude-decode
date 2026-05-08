@@ -47,13 +47,13 @@ function Hero({ onTryItOut }) {
         <span className="mono">{loadingPhrase}</span>
       </div>
       <h1 className="hero-title mono">
-        Claude <span className="hero-title-accent">Decoded</span>
+        Claude <span className="hero-title-accent"><span className="hero-title-underline">De</span>code</span>
       </h1>
       <p className="hero-tagline">
         Get deeper insights into your behavioral patterns when using Claude Code.
       </p>
       <p className="hero-description">
-        Claude Decoded reads your local Claude Code logs, analyzes behavioral patterns, and draws inferences about underlying motivations and frustrations.
+        Claude Decode reads your local Claude Code logs, analyzes behavioral patterns, and draws inferences about underlying motivations and frustrations.
       </p>
       <button className="cta-primary" onClick={onTryItOut}>
         Try it out
@@ -889,7 +889,7 @@ function VisualizePage({ data, onBack }) {
           className="topbar-brand mono topbar-brand-button"
           onClick={onBack}
         >
-          claude_decoded
+          claude_decode
         </button>
         <div className="topbar-actions">
           <button className="cta-secondary" type="button" onClick={onBack}>
@@ -1096,7 +1096,7 @@ function LatticePage({ data, onReset, onVisualize }) {
           className="topbar-brand mono topbar-brand-button"
           onClick={onReset}
         >
-          claude_decoded
+          claude_decode
         </button>
         <div className="topbar-actions">
           <button
@@ -1112,7 +1112,7 @@ function LatticePage({ data, onReset, onVisualize }) {
       <main className="lattice-main">
         <div className="lattice-header">
           <div className="lattice-title-row">
-            <h1 className="lattice-title">Claude Decoded</h1>
+            <h1 className="lattice-title">Claude Decode</h1>
             <button
               className="cta-secondary cta-with-icon"
               type="button"
@@ -1197,7 +1197,7 @@ function HowItWorks() {
       <div className="how-eyebrow mono">how it works</div>
       <h2 className="how-title">Behavior Latticing</h2>
       <p className="how-body">
-        Claude Decoded is built on top of <strong>Behavior Latticing</strong>, a
+        Claude Decode is built on top of <strong>Behavior Latticing</strong>, a
         method for inferring user motivations from unstructured interactions.
       </p>
       <p className="how-body">
@@ -1418,7 +1418,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="topbar-brand mono">claude_decoded</div>
+        <div className="topbar-brand mono">claude_decode</div>
         <div className="topbar-actions">
           {latticeData && (
             <button
@@ -1442,7 +1442,7 @@ export default function App() {
       </main>
 
       <footer className="footer mono">
-        Claude Decoded is a research prototype by <a href="https://hci.stanford.edu" target="_blank" rel="noreferrer">Stanford HCI</a>.
+        Claude Decode is a research prototype by <a href="https://hci.stanford.edu" target="_blank" rel="noreferrer">Stanford HCI</a>.
       </footer>
 
       <Modal open={modalOpen} onClose={closeModal}>

@@ -10,7 +10,7 @@ export default defineConfig(({ command }) => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5001',
+        target: 'https://claude-decode.duckdns.org',
         changeOrigin: true,
       },
     },
