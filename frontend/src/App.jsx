@@ -21,6 +21,79 @@ const LOADING_PHRASES = [
   'consternating over complexity'
 ]
 
+function stripTranscriptLine(line) {
+  let entry
+  try {
+    entry = JSON.parse(line)
+  } catch {
+    return null
+  }
+  const t = entry.type
+  if (t !== 'user' && t !== 'assistant') return null
+  const message = entry.message
+  if (!message || typeof message !== 'object') return null
+
+  const textParts = []
+  const content = message.content
+  if (typeof content === 'string') {
+    if (content.trim()) textParts.push(content)
+  } else if (Array.isArray(content)) {
+    for (const c of content) {
+      if (
+        c &&
+        typeof c === 'object' &&
+        c.type === 'text' &&
+        typeof c.text === 'string' &&
+        c.text.trim()
+      ) {
+        textParts.push(c.text)
+      }
+    }
+  }
+  if (!textParts.length) return null
+
+  return {
+    type: t,
+    timestamp: entry.timestamp,
+    message: {
+      role: message.role,
+      content: textParts.map((text) => ({ type: 'text', text })),
+    },
+  }
+}
+
+async function stripTranscriptFile(file) {
+  const reader = file
+    .stream()
+    .pipeThrough(new TextDecoderStream())
+    .getReader()
+
+  const out = []
+  let buffer = ''
+
+  const consumeLine = (raw) => {
+    const line = raw.trim()
+    if (!line) return
+    const stripped = stripTranscriptLine(line)
+    if (stripped) out.push(JSON.stringify(stripped))
+  }
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += value
+    let nl
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      consumeLine(buffer.slice(0, nl))
+      buffer = buffer.slice(nl + 1)
+    }
+  }
+  consumeLine(buffer)
+
+  if (!out.length) return null
+  return new Blob([out.join('\n')], { type: 'application/jsonl' })
+}
+
 function Hero({ onTryItOut }) {
   const [loadingPhrase, setLoadingPhrase] = useState(() =>
     LOADING_PHRASES[Math.floor(Math.random() * LOADING_PHRASES.length)],
@@ -1324,7 +1397,15 @@ export default function App() {
     try {
       const formData = new FormData()
       formData.append('api_key', apiKey)
-      files.forEach((f) => formData.append('files', f, f.name))
+      for (const f of files) {
+        const stripped = await stripTranscriptFile(f)
+        if (stripped) formData.append('files', stripped, f.name)
+      }
+      if (!formData.has('files')) {
+        throw new Error(
+          'No usable transcripts found in the selected folder. Make sure you picked the .claude/projects directory.',
+        )
+      }
 
       const res = await fetch(`${API_BASE}/api/insights`, {
         method: 'POST',
