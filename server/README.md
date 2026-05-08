@@ -18,3 +18,6 @@ Server runs on `http://localhost:5001`. The Vite dev server proxies `/api/*` to 
 
 - `GET  /api/health` — liveness check
 - `POST /api/insights` — multipart form: `api_key` (string) + `files` (one or more `.jsonl` Claude Code transcripts). Returns `{ summary, patterns, motivations, sessions_analyzed, messages_analyzed }`.
+
+
+Redis Queue
